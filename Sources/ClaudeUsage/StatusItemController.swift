@@ -15,6 +15,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     private var appearanceObservation: NSKeyValueObservation?
     private var globalMouseMonitor: Any?
     private var renderedState: StatusDisplayState?
+    private var renderedTooltip: String?
 
     init(model: UsageModel) {
         self.model = model
@@ -74,14 +75,18 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
 
     private func render(force: Bool = false) {
         let state = model.displayState
-        guard force || state != renderedState else { return }
+        // The tooltip also carries the session percent and the error text, and
+        // neither of those is part of `state`.
+        let tooltip = tooltip(for: state)
+        guard force || state != renderedState || tooltip != renderedTooltip else { return }
         renderedState = state
+        renderedTooltip = tooltip
 
         guard let button = statusItem.button else { return }
         let image = StatusBarRenderer.render(state, appearance: button.effectiveAppearance)
         button.image = image
         button.appearsDisabled = state.isStale
-        button.toolTip = tooltip(for: state)
+        button.toolTip = tooltip
     }
 
     private func tooltip(for state: StatusDisplayState) -> String {

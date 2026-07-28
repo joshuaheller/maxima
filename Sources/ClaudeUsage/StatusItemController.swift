@@ -6,7 +6,7 @@ import os
 /// Owns the `NSStatusItem`, keeps its image in sync with the model, and manages
 /// the popover.
 @MainActor
-final class StatusItemController: NSObject {
+final class StatusItemController: NSObject, NSPopoverDelegate {
     private let model: UsageModel
     private let statusItem: NSStatusItem
     private let popover: NSPopover
@@ -27,6 +27,8 @@ final class StatusItemController: NSObject {
         self.popover = popover
 
         super.init()
+
+        popover.delegate = self
 
         if let button = statusItem.button {
             button.target = self
@@ -103,6 +105,9 @@ final class StatusItemController: NSObject {
 
     private func showPopover() {
         guard let button = statusItem.button else { return }
+        // Never stack monitors: a previous one may still be installed if the
+        // popover was dismissed by a path that does not run through us.
+        removeMouseMonitor()
         // An .accessory app is not active, and an inactive app's popover renders
         // (and dismisses) unreliably — activate first.
         NSApp.activate()
@@ -122,9 +127,20 @@ final class StatusItemController: NSObject {
 
     private func closePopover() {
         popover.performClose(nil)
+        removeMouseMonitor()
+    }
+
+    private func removeMouseMonitor() {
         if let monitor = globalMouseMonitor {
             NSEvent.removeMonitor(monitor)
             globalMouseMonitor = nil
         }
+    }
+
+    /// The popover also dismisses itself (transient behaviour, Escape, the app
+    /// resigning active), and those paths never reach `closePopover`, so the
+    /// monitor has to be torn down here as well.
+    func popoverDidClose(_ notification: Notification) {
+        removeMouseMonitor()
     }
 }

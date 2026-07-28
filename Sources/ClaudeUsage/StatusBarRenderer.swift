@@ -41,16 +41,18 @@ public struct StatusDisplayState: Sendable, Equatable {
 /// usable from the `--render-test` CLI path.
 public enum StatusBarRenderer {
     public static let height: CGFloat = 22
-    public static let baseWidth: CGFloat = 64
+    public static let baseWidth: CGFloat = 68
     /// Extra room for the stale warning triangle.
-    public static let staleWidth: CGFloat = 74
+    public static let staleWidth: CGFloat = 78
 
     private static let barHeight: CGFloat = 7
     private static let barGap: CGFloat = 2
     private static let cornerRadius: CGFloat = 2
-    private static let textWidth: CGFloat = 24
+    /// Wide enough for "100%" at `percentFont` — a narrower column clips the "%".
+    static let textWidth: CGFloat = 28
     private static let textGap: CGFloat = 3
     private static let glyphWidth: CGFloat = 10
+    static var percentFont: NSFont { .monospacedDigitSystemFont(ofSize: 9, weight: .medium) }
 
     public static func width(isStale: Bool) -> CGFloat { isStale ? staleWidth : baseWidth }
 
@@ -143,7 +145,7 @@ public enum StatusBarRenderer {
         }
 
         let text = "\(bar.percent)%" as NSString
-        let font = NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .medium)
+        let font = percentFont
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .right
         let attributes: [NSAttributedString.Key: Any] = [

@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import AppKit
 @testable import ClaudeUsage
 
 // A trimmed-but-realistic capture of a live `GET /api/oauth/usage` response,
@@ -365,7 +366,14 @@ struct DisplayStateTests {
 
     @Test("stale state widens the canvas for the warning glyph")
     func staleWidth() {
-        #expect(StatusBarRenderer.width(isStale: false) == 64)
-        #expect(StatusBarRenderer.width(isStale: true) == 74)
+        #expect(StatusBarRenderer.width(isStale: false) == 68)
+        // The stale glyph is extra width, so the bars keep their size.
+        #expect(StatusBarRenderer.width(isStale: true) - StatusBarRenderer.width(isStale: false) == 10)
+    }
+
+    @Test("the percent column fits the widest label it can show", arguments: ["0%", "26%", "100%"])
+    func percentTextFits(label: String) {
+        let width = (label as NSString).size(withAttributes: [.font: StatusBarRenderer.percentFont]).width
+        #expect(width <= StatusBarRenderer.textWidth)
     }
 }

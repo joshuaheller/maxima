@@ -76,6 +76,13 @@ struct UsageParsingTests {
         #expect(snapshot.session == nil)
     }
 
+    @Test("rounds fractional percentages instead of failing the decode")
+    func toleratesFractionalPercent() throws {
+        let body = #"{"limits":[{"kind":"weekly_all","group":"weekly","percent":27.5,"severity":"normal","resets_at":"2026-08-02T00:00:00.000000+00:00","scope":null,"is_active":false}]}"#
+        let snapshot = try UsageParser.parse(Data(body.utf8))
+        #expect(snapshot.allModels?.percent == 28)
+    }
+
     @Test("reports malformed JSON as a decoding error")
     func rejectsGarbage() {
         #expect(throws: UsageError.self) {
@@ -91,7 +98,7 @@ struct FableMatchingTests {
 
     private func scoped(_ displayName: String?, percent: Int) -> LimitDTO {
         LimitDTO(
-            kind: "weekly_scoped", group: "weekly", percent: percent, severity: "normal",
+            kind: "weekly_scoped", group: "weekly", percent: Double(percent), severity: "normal",
             resetsAt: "2026-08-02T00:00:00.000000+00:00",
             scope: ScopeDTO(model: ModelScopeDTO(id: nil, displayName: displayName)),
             isActive: true

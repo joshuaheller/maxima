@@ -38,9 +38,10 @@ public final class UsageModel {
         timer = nil
     }
 
-    /// True when the displayed numbers can no longer be trusted.
+    /// True when the displayed numbers can no longer be trusted. A nil snapshot
+    /// without an error is just the brief initial load, not a failure.
     public var isStale: Bool {
-        lastError != nil || snapshot == nil
+        lastError != nil
     }
 
     /// Derived input for the status bar renderer.

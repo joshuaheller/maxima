@@ -128,7 +128,9 @@ struct UsageResponseDTO: Decodable {
 struct LimitDTO: Decodable {
     var kind: String?
     var group: String?
-    var percent: Int?
+    // Double: an integer-typed field would fail the whole decode if the server
+    // ever sends a fractional percent (the sibling utilization fields are Doubles).
+    var percent: Double?
     var severity: String?
     var resetsAt: String?
     var scope: ScopeDTO?
@@ -164,7 +166,7 @@ public enum UsageParser {
     }
 
     static func limit(from dto: LimitDTO, as kind: LimitKind) -> UsageLimit {
-        let percent = dto.percent ?? 0
+        let percent = Int((dto.percent ?? 0).rounded())
         return UsageLimit(
             kind: kind,
             percent: percent,

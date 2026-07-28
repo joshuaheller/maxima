@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItemController: StatusItemController?
     private let notifications = NotificationManager()
     private let log = Logger(subsystem: AppInfo.subsystem, category: "app")
+    private var wakeObserver: (any NSObjectProtocol)?
 
     private static let didRegisterLoginItemKey = "didRegisterLoginItem"
 
@@ -23,13 +24,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        NSWorkspace.shared.notificationCenter.removeObserver(self)
+        // The block-based API registers an opaque token, not `self`, so that is
+        // what has to be handed back.
+        if let wakeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
+            self.wakeObserver = nil
+        }
     }
 
     // MARK: Wake
 
     private func observeWake() {
-        NSWorkspace.shared.notificationCenter.addObserver(
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification,
             object: nil,
             queue: .main

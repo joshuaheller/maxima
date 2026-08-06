@@ -23,10 +23,6 @@ jobs:
     name: Build, notarize and publish
     runs-on: macos-26
 
-    env:
-      KEYCHAIN_PATH: ${{ runner.temp }}/signing.keychain-db
-      NOTARY_KEY_PATH: ${{ runner.temp }}/notary.p8
-
     steps:
       - uses: actions/checkout@v5
         with:
@@ -48,6 +44,7 @@ jobs:
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
           CERT_PATH="${RUNNER_TEMP}/certificate.p12"
+          KEYCHAIN_PATH="${RUNNER_TEMP}/signing.keychain-db"
           echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode -o "$CERT_PATH"
 
           # A throwaway keychain, deleted again in the cleanup step below.
@@ -81,12 +78,13 @@ jobs:
           NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          echo -n "$NOTARY_KEY_P8" | base64 --decode -o "$NOTARY_KEY_PATH"
+          KEY_PATH="${RUNNER_TEMP}/notary.p8"
+          echo -n "$NOTARY_KEY_P8" | base64 --decode -o "$KEY_PATH"
           DMG="dist/Maxima-${VERSION}.dmg"
           RESULT="${RUNNER_TEMP}/notary-result.json"
 
           xcrun notarytool submit "$DMG" \
-            --key "$NOTARY_KEY_PATH" \
+            --key "$KEY_PATH" \
             --key-id "$NOTARY_KEY_ID" \
             --issuer "$NOTARY_ISSUER_ID" \
             --wait --output-format json | tee "$RESULT"
@@ -98,7 +96,7 @@ jobs:
             SUBMISSION_ID="$(plutil -extract id raw -o - "$RESULT" 2>/dev/null || true)"
             if [ -n "$SUBMISSION_ID" ]; then
               xcrun notarytool log "$SUBMISSION_ID" \
-                --key "$NOTARY_KEY_PATH" \
+                --key "$KEY_PATH" \
                 --key-id "$NOTARY_KEY_ID" \
                 --issuer "$NOTARY_ISSUER_ID" >&2
             fi
@@ -129,5 +127,5 @@ jobs:
       - name: Clean up signing material
         if: always()
         run: |
-          security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
-          rm -f "$NOTARY_KEY_PATH" "${RUNNER_TEMP}/certificate.p12"
+          security delete-keychain "${RUNNER_TEMP}/signing.keychain-db" 2>/dev/null || true
+          rm -f "${RUNNER_TEMP}/notary.p8" "${RUNNER_TEMP}/certificate.p12"

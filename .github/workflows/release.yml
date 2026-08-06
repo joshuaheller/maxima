@@ -23,6 +23,12 @@ jobs:
     name: Build, notarize and publish
     runs-on: macos-26
 
+    # Signing secrets live in this environment, not on the repository, so they
+    # are only released to a run whose ref satisfies the environment's tag rule.
+    # Configure it as: Settings -> Environments -> release -> Deployment branches
+    # and tags -> Selected -> Tag rule "v*".
+    environment: release
+
     steps:
       - uses: actions/checkout@v5
         with:

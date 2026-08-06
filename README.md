@@ -130,8 +130,13 @@ and tag again — the workflow is safe to re-run.
 
 ### Required repository secrets
 
-Signing and notarization need six secrets under
-*Settings › Secrets and variables › Actions*:
+Signing and notarization need six secrets. They belong to the **`release`
+environment** (*Settings › Environments › release › Environment secrets*), not to
+the repository, so a workflow running on a branch cannot reach the signing key.
+
+Configure that environment with *Deployment branches and tags → Selected branches
+and tags → Tag rule `v*`*, and optionally a required reviewer, so a release pauses
+for approval before anything is signed.
 
 | Secret | What it is |
 | --- | --- |

@@ -249,16 +249,16 @@ public enum AnthropicAPI {
 // MARK: - Shared app identity
 
 public enum AppInfo {
-    public static let subsystem = "com.aucentiq.ClaudeUsage"
-    public static let displayName = "Claude Usage"
+    public static let subsystem = "com.aucentiq.Maxima"
+    public static let displayName = "Maxima"
 }
 
 // MARK: - Debug override
 
-/// `CLAUDE_USAGE_FAKE_PERCENTS="all,fable,session"` replaces the parsed percentages
+/// `MAXIMA_FAKE_PERCENTS="all,fable,session"` replaces the parsed percentages
 /// after a successful fetch so colours and notifications can be eyeballed.
 public enum FakePercents {
-    public static let environmentKey = "CLAUDE_USAGE_FAKE_PERCENTS"
+    public static let environmentKey = "MAXIMA_FAKE_PERCENTS"
 
     public static func apply(to snapshot: UsageSnapshot,
                             raw: String? = ProcessInfo.processInfo.environment[FakePercents.environmentKey]) -> UsageSnapshot {

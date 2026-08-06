@@ -1,6 +1,7 @@
-# Claude Usage
+# Maxima
 
-A tiny native macOS menu bar app that shows your Claude usage limits at a glance.
+A tiny native macOS menu bar app that shows your Claude Code usage limits at a
+glance.
 
 The status item always displays two stacked mini progress bars:
 
@@ -24,50 +25,72 @@ reset window.
 ## Requirements
 
 - macOS 14 or later, Apple silicon
-- Claude Code installed and signed in (see the Keychain note below)
+- Claude Code installed and signed in (see [Credentials](#credentials) below)
 
-## Build
+## Install
+
+Download the latest `Maxima-<version>.dmg` from the
+[releases page](../../releases), open it, and drag **Maxima** to Applications.
+
+Release builds are signed with a Developer ID certificate and notarized by Apple,
+so they open without a Gatekeeper warning. Each release also carries a
+`checksums.txt` if you want to verify the download:
 
 ```sh
-./build.sh            # builds build/Claude Usage.app
-./build.sh install    # also replaces /Applications/Claude Usage.app and launches it
+shasum -a 256 -c checksums.txt
 ```
 
-The bundle is ad-hoc signed by default. To use a stable identity, create a
+Launch-at-login is registered automatically (via `SMAppService`) on the first run
+of a copy that lives in `/Applications`. macOS may ask you to approve it under
+System Settings › General › Login Items.
+
+## Credentials
+
+There is no separate sign-in. Maxima reuses the OAuth access token that Claude
+Code already stores in your login keychain, under the generic-password item
+`Claude Code-credentials`.
+
+How that token is handled is a fixed contract, not an implementation detail:
+
+- **The refresh token is never touched.** Only the access token is read.
+- **Nothing is ever written back.** The keychain item belongs to Claude Code,
+  which rotates it, so it is re-read on *every* fetch and never modified.
+- **The token never leaves your machine** except as the `Authorization` header on
+  a single `GET` to `api.anthropic.com`. It is never logged or persisted.
+- **No retry storms.** Failures back off rather than hammering the endpoint.
+
+These rules are binding on contributions too — see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+The read goes through a `/usr/bin/security find-generic-password` subprocess
+rather than `SecItemCopyMatching`. This is deliberate: `SecItemCopyMatching` from
+an ad-hoc-signed app triggers a blocking keychain permission dialog every time the
+binary's identity changes (i.e. on every local rebuild), whereas the `security`
+tool reads it without prompting. `SecItemCopyMatching` remains as a fallback if
+the subprocess fails.
+
+If the token has expired, or the API rejects it, the popover says so — opening
+Claude Code once refreshes it.
+
+## Build from source
+
+```sh
+./build.sh            # builds build/Maxima.app
+./build.sh install    # also replaces /Applications/Maxima.app and launches it
+./build.sh dmg        # also packages dist/Maxima-<version>.dmg
+```
+
+Local builds are ad-hoc signed by default. To use a stable identity, create a
 self-signed code-signing certificate in Keychain Access and pass it through:
 
 ```sh
 SIGN_ID="My Self-Signed Cert" ./build.sh install
 ```
 
+`VERSION=1.2.3` stamps the bundle version; leave it unset and the committed
+`Info.plist` value is used.
+
 The app is deliberately **not sandboxed** and ships no entitlements — it needs to
 spawn `/usr/bin/security` and reach the login keychain.
-
-Launch-at-login is registered automatically (via `SMAppService`) on the first run
-of a copy that lives in `/Applications`. macOS may ask you to approve it under
-System Settings › General › Login Items.
-
-## The Keychain note
-
-There is no separate sign-in. The app reuses the OAuth access token that Claude
-Code already stores in your login keychain, under the generic-password item
-`Claude Code-credentials`.
-
-That access is **strictly read-only**:
-
-- the item is re-read on *every* fetch, because Claude Code rotates the token
-- nothing is ever written back
-- the refresh token is never touched
-
-The read goes through a `/usr/bin/security find-generic-password` subprocess
-rather than `SecItemCopyMatching`. This is deliberate: `SecItemCopyMatching` from
-an ad-hoc-signed app triggers a blocking keychain permission dialog every time the
-binary's identity changes (i.e. on every rebuild), whereas the `security` tool
-reads it without prompting. `SecItemCopyMatching` remains as a fallback if the
-subprocess fails.
-
-If the token has expired, or the API rejects it, the popover says so — opening
-Claude Code once refreshes it.
 
 ## Development
 
@@ -75,12 +98,63 @@ Claude Code once refreshes it.
 swift build && swift test
 ```
 
+CI runs the same on every push and pull request.
+
 Headless debug hooks on the built binary:
 
 ```sh
-.build/release/ClaudeUsage --fetch-once            # print live limits, no UI
-.build/release/ClaudeUsage --render-test /tmp/out  # write status bar PNGs for each state
+.build/release/Maxima --fetch-once            # print live limits, no UI
+.build/release/Maxima --render-test /tmp/out  # write status bar PNGs for each state
 ```
 
-`CLAUDE_USAGE_FAKE_PERCENTS="85,97,50"` (all, Fable, session) overrides the parsed
+`MAXIMA_FAKE_PERCENTS="85,97,50"` (all, Fable, session) overrides the parsed
 percentages after a fetch, for checking colours and notifications.
+
+## Releasing
+
+Releases are cut by pushing a tag. Nothing else triggers a build.
+
+```sh
+git tag -a v1.2.3 -m "v1.2.3"
+git push origin v1.2.3
+```
+
+The release workflow then runs the tests, builds and signs the app, packages the
+DMG, submits it to Apple for notarization, staples the ticket, generates
+checksums, and publishes a GitHub Release with notes derived from the commits
+since the previous tag. Tags follow [semver](https://semver.org/) and the tag
+drives `CFBundleShortVersionString`, so `v1.2.3` ships as version `1.2.3`.
+
+If a release fails, delete the tag (locally and on the remote), fix the problem,
+and tag again — the workflow is safe to re-run.
+
+### Required repository secrets
+
+Signing and notarization need six secrets under
+*Settings › Secrets and variables › Actions*:
+
+| Secret | What it is |
+| --- | --- |
+| `BUILD_CERTIFICATE_BASE64` | Developer ID Application certificate and private key, exported as `.p12` and base64-encoded |
+| `P12_PASSWORD` | The export password for that `.p12` |
+| `KEYCHAIN_PASSWORD` | Any random string; used for the throwaway keychain on the runner |
+| `NOTARY_KEY_ID` | App Store Connect API key ID |
+| `NOTARY_ISSUER_ID` | App Store Connect issuer UUID |
+| `NOTARY_KEY_P8` | The `AuthKey_*.p8` API key file, base64-encoded |
+
+No team ID is needed: `notarytool` authenticates with the API key triple, and
+`codesign` takes the team from the certificate itself.
+
+The certificate is imported into a temporary keychain that is deleted at the end
+of the run, and the notary key is written to the runner's temp directory and
+removed in the same cleanup step.
+
+## Licence
+
+[MIT](LICENSE) — Copyright © 2026 aucentiq solutions GmbH.
+
+## Trademarks
+
+Not affiliated with, endorsed by, or sponsored by Anthropic. Claude and Claude
+Code are trademarks of Anthropic PBC. Maxima reads usage data for your own Claude
+Code installation, using credentials that are already on your machine.

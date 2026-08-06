@@ -71,8 +71,14 @@ public enum KeychainCredentials {
         // concurrent drainer to avoid a full-buffer deadlock, and a file lets us
         // poll for termination with a hard timeout using only local state.
         let scratch = FileManager.default.temporaryDirectory
-            .appendingPathComponent("claude-usage-\(UUID().uuidString).json")
-        FileManager.default.createFile(atPath: scratch.path, contents: nil)
+            .appendingPathComponent("maxima-\(UUID().uuidString).json")
+        // 0600 explicitly. The file briefly holds the entire credential blob —
+        // refresh token included. $TMPDIR is already per-user and mode 700, but
+        // this is the one place a plaintext token touches disk, so it does not
+        // rely on that staying true.
+        FileManager.default.createFile(atPath: scratch.path,
+                                       contents: nil,
+                                       attributes: [.posixPermissions: 0o600])
         defer { try? FileManager.default.removeItem(at: scratch) }
 
         guard let sink = try? FileHandle(forWritingTo: scratch) else {

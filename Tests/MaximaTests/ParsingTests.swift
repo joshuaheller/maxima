@@ -1,7 +1,7 @@
 import Testing
 import Foundation
 import AppKit
-@testable import ClaudeUsage
+@testable import Maxima
 
 // A trimmed-but-realistic capture of a live `GET /api/oauth/usage` response,
 // including the many top-level fields the app deliberately ignores.
@@ -201,7 +201,7 @@ struct DateParsingTests {
 struct NotificationDedupTests {
 
     private func makeDefaults() throws -> UserDefaults {
-        let name = "ClaudeUsageTests-\(UUID().uuidString)"
+        let name = "MaximaTests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: name))
         defaults.removePersistentDomain(forName: name)
         return defaults

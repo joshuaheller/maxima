@@ -2,20 +2,20 @@
 import PackageDescription
 
 let package = Package(
-    name: "ClaudeUsage",
+    name: "Maxima",
     platforms: [.macOS(.v14)],
     targets: [
         .executableTarget(
-            name: "ClaudeUsage",
-            path: "Sources/ClaudeUsage",
+            name: "Maxima",
+            path: "Sources/Maxima",
             swiftSettings: [
                 .swiftLanguageMode(.v6)
             ]
         ),
         .testTarget(
-            name: "ClaudeUsageTests",
-            dependencies: ["ClaudeUsage"],
-            path: "Tests/ClaudeUsageTests",
+            name: "MaximaTests",
+            dependencies: ["Maxima"],
+            path: "Tests/MaximaTests",
             swiftSettings: [
                 .swiftLanguageMode(.v6)
             ]

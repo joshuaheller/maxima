@@ -26,12 +26,18 @@ public final class NotificationManager {
             log.info("skipping notification authorization: not running from a bundle")
             return
         }
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
-            let log = Logger(subsystem: AppInfo.subsystem, category: "notifications")
-            if let error {
-                log.error("authorization failed: \(error.localizedDescription, privacy: .public)")
-            } else {
+        // The completion-handler form calls back on UserNotifications' own queue.
+        // Inside this @MainActor type the closure is inferred main-actor-isolated
+        // (the SDK does not mark the parameter @Sendable), so Swift 6's runtime
+        // executor check traps with SIGTRAP the moment it fires. The async form
+        // suspends and resumes on the main actor instead.
+        Task {
+            do {
+                let granted = try await UNUserNotificationCenter.current()
+                    .requestAuthorization(options: [.alert, .sound])
                 log.info("authorization granted=\(granted, privacy: .public)")
+            } catch {
+                log.error("authorization failed: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
@@ -80,10 +86,12 @@ public final class NotificationManager {
             content: content,
             trigger: nil
         )
-        UNUserNotificationCenter.current().add(request) { error in
-            if let error {
-                Logger(subsystem: AppInfo.subsystem, category: "notifications")
-                    .error("failed to post notification: \(error.localizedDescription, privacy: .public)")
+        // Same isolation trap as requestAuthorization() above — use the async form.
+        Task {
+            do {
+                try await UNUserNotificationCenter.current().add(request)
+            } catch {
+                log.error("failed to post notification: \(error.localizedDescription, privacy: .public)")
             }
         }
     }

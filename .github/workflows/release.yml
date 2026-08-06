@@ -1,0 +1,133 @@
+name: Release
+
+# Only a pushed v* tag builds a release. Nothing here runs on ordinary pushes.
+#
+#   git tag -a v1.2.3 -m "v1.2.3"
+#   git push origin v1.2.3
+#
+# Required repository secrets are documented in the README under "Releasing".
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build, notarize and publish
+    runs-on: macos-26
+
+    env:
+      KEYCHAIN_PATH: ${{ runner.temp }}/signing.keychain-db
+      NOTARY_KEY_PATH: ${{ runner.temp }}/notary.p8
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Full history so release-note generation has the previous tag to diff against.
+          fetch-depth: 0
+
+      - name: Derive version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      # A broken tag must never ship.
+      - name: Test
+        run: swift test
+
+      - name: Import signing certificate
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          CERT_PATH="${RUNNER_TEMP}/certificate.p12"
+          echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode -o "$CERT_PATH"
+
+          # A throwaway keychain, deleted again in the cleanup step below.
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -k "$KEYCHAIN_PATH" -P "$P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" > /dev/null
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          rm -f "$CERT_PATH"
+
+          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" \
+            | grep 'Developer ID Application' | head -1 | sed -E 's/.*"(.*)".*/\1/')"
+          if [ -z "$IDENTITY" ]; then
+            echo "No Developer ID Application identity found in the imported certificate." >&2
+            exit 1
+          fi
+          echo "::add-mask::$IDENTITY"
+          echo "SIGN_ID=${IDENTITY}" >> "$GITHUB_ENV"
+
+      - name: Build and package
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: ./build.sh dmg
+
+      - name: Notarize and staple
+        env:
+          NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          echo -n "$NOTARY_KEY_P8" | base64 --decode -o "$NOTARY_KEY_PATH"
+          DMG="dist/Maxima-${VERSION}.dmg"
+          RESULT="${RUNNER_TEMP}/notary-result.json"
+
+          xcrun notarytool submit "$DMG" \
+            --key "$NOTARY_KEY_PATH" \
+            --key-id "$NOTARY_KEY_ID" \
+            --issuer "$NOTARY_ISSUER_ID" \
+            --wait --output-format json | tee "$RESULT"
+
+          # notarytool exits 0 for a rejected submission, so check the status field.
+          STATUS="$(plutil -extract status raw -o - "$RESULT" 2>/dev/null || true)"
+          if [ "$STATUS" != "Accepted" ]; then
+            echo "Notarization failed with status: ${STATUS:-unknown}" >&2
+            SUBMISSION_ID="$(plutil -extract id raw -o - "$RESULT" 2>/dev/null || true)"
+            if [ -n "$SUBMISSION_ID" ]; then
+              xcrun notarytool log "$SUBMISSION_ID" \
+                --key "$NOTARY_KEY_PATH" \
+                --key-id "$NOTARY_KEY_ID" \
+                --issuer "$NOTARY_ISSUER_ID" >&2
+            fi
+            exit 1
+          fi
+
+          # Staple so the ticket travels with the file and validates offline.
+          xcrun stapler staple "$DMG"
+          xcrun stapler validate "$DMG"
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          shasum -a 256 *.dmg > checksums.txt
+          cat checksums.txt
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "Maxima ${VERSION}" \
+            --generate-notes \
+            --verify-tag \
+            dist/*.dmg dist/checksums.txt
+
+      - name: Clean up signing material
+        if: always()
+        run: |
+          security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+          rm -f "$NOTARY_KEY_PATH" "${RUNNER_TEMP}/certificate.p12"

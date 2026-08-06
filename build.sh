@@ -49,9 +49,12 @@ BINARY="$(swift build -c release --arch arm64 --show-bin-path)/${EXECUTABLE}"
 
 echo "==> Assembling ${APP}"
 rm -rf "${APP}"
-mkdir -p "${APP}/Contents/MacOS"
+mkdir -p "${APP}/Contents/MacOS" "${APP}/Contents/Resources"
 cp "${BINARY}" "${APP}/Contents/MacOS/${EXECUTABLE}"
 cp Resources/Info.plist "${APP}/Contents/Info.plist"
+# Before codesign: the signature covers Contents/Resources, so anything added
+# afterwards invalidates it.
+cp Resources/Maxima.icns "${APP}/Contents/Resources/Maxima.icns"
 
 if [[ -n "${VERSION:-}" ]]; then
 	echo "==> Stamping version ${VERSION}"

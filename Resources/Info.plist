@@ -10,6 +10,10 @@
 	<string>Maxima</string>
 	<key>CFBundleExecutable</key>
 	<string>Maxima</string>
+	<key>CFBundleIconFile</key>
+	<string>Maxima</string>
+	<key>CFBundleIconName</key>
+	<string>Maxima</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleInfoDictionaryVersion</key>

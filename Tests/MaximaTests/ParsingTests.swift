@@ -299,10 +299,21 @@ struct CredentialTests {
         }
     }
 
-    @Test("rejects a blob without a claudeAiOauth access token")
+    @Test("reports genuinely unparsable data as malformed")
     func rejectsMalformed() {
         #expect(throws: CredentialError.malformed) {
-            _ = try KeychainCredentials.decode(Data(#"{"mcpOAuth":{}}"#.utf8))
+            _ = try KeychainCredentials.decode(Data("not json".utf8))
+        }
+    }
+
+    @Test("a parsed blob with no usable token reads as notFound (sign in again)", arguments: [
+        #"{"mcpOAuth":{}}"#,                                 // no claudeAiOauth at all
+        #"{"claudeAiOauth":{"accessToken":""}}"#,            // present but blank — the observed case
+        #"{"claudeAiOauth":{"refreshToken":"x"}}"#,          // object without an accessToken
+    ])
+    func missingTokenIsNotFound(body: String) {
+        #expect(throws: CredentialError.notFound) {
+            _ = try KeychainCredentials.decode(Data(body.utf8))
         }
     }
 
@@ -348,7 +359,7 @@ struct FakePercentTests {
 @Suite("Status bar display state")
 struct DisplayStateTests {
 
-    @Test("template rendering only while fresh and all-normal")
+    @Test("template rendering only while fresh, all-normal and session-free")
     func templateEligibility() {
         let normal = StatusDisplayState(all: BarState(percent: 26, severity: .normal),
                                         fable: BarState(percent: 28, severity: .normal),
@@ -362,6 +373,20 @@ struct DisplayStateTests {
         var stale = normal
         stale.isStale = true
         #expect(stale.isTemplateEligible == false)
+
+        // The session gauge is always coloured, so it forces non-template rendering.
+        var withSession = normal
+        withSession.session = BarState(percent: 40, severity: .normal)
+        #expect(withSession.isTemplateEligible == false)
+    }
+
+    @Test("the session gauge sweeps from green at low load to red at high load")
+    func sessionColourSweep() throws {
+        // RGB components rather than hue: hue wraps (red sits at both 0.0 and 1.0).
+        let low = try #require(StatusBarRenderer.sessionColor(fraction: 0.0).usingColorSpace(.sRGB))
+        let high = try #require(StatusBarRenderer.sessionColor(fraction: 1.0).usingColorSpace(.sRGB))
+        #expect(low.greenComponent > low.redComponent)     // green dominates when idle
+        #expect(high.redComponent > high.greenComponent)   // red dominates when full
     }
 
     @Test("bar fill fraction is clamped to 0...1")
@@ -371,11 +396,20 @@ struct DisplayStateTests {
         #expect(BarState(percent: 26, severity: .normal).fraction == 0.26)
     }
 
-    @Test("stale state widens the canvas for the warning glyph")
-    func staleWidth() {
-        #expect(StatusBarRenderer.width(isStale: false) == 68)
-        // The stale glyph is extra width, so the bars keep their size.
-        #expect(StatusBarRenderer.width(isStale: true) - StatusBarRenderer.width(isStale: false) == 10)
+    @Test("stale state and the session column each widen the canvas")
+    func widthGrowsForExtras() {
+        let base = StatusDisplayState(all: BarState(percent: 26, severity: .normal),
+                                      fable: BarState(percent: 28, severity: .normal),
+                                      isStale: false)
+        var stale = base
+        stale.isStale = true
+        // The stale glyph is extra width; the bars keep their size.
+        #expect(StatusBarRenderer.width(for: stale) - StatusBarRenderer.width(for: base) == 10)
+
+        var withSession = base
+        withSession.session = BarState(percent: 40, severity: .normal)
+        withSession.sessionCountdown = "3h05m"
+        #expect(StatusBarRenderer.width(for: withSession) > StatusBarRenderer.width(for: base))
     }
 
     @Test("the percent column fits the widest label it can show", arguments: ["0%", "26%", "100%"])

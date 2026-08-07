@@ -3,15 +3,18 @@
 A tiny native macOS menu bar app that shows your Claude Code usage limits at a
 glance.
 
-The status item always displays two stacked mini progress bars:
+The status item shows, from left to right:
 
-- **top** — the weekly *All models* limit
-- **bottom** — the weekly *Fable* limit
+- a small Claude-style sunburst, so Maxima is easy to pick out of the menu bar
+- two stacked mini progress bars — **top** the weekly *All models* limit, **bottom**
+  the weekly *Fable* limit — each with its percentage. They turn orange as a limit
+  approaches and red when critical.
+- a vertical gauge for the current **5-hour session**, coloured on a continuous
+  green→red scale by how much of the session is used, with the time left until it
+  resets shown beside it.
 
-Both are drawn as template images (so they follow light/dark mode and menu bar
-tinting) until something needs attention: warning bars turn orange, critical bars
-turn red. If the data goes stale the item dims and grows a small warning triangle,
-while still showing the last known numbers.
+The item follows light and dark mode. If the data goes stale it dims and grows a
+small warning triangle, while still showing the last known numbers.
 
 Clicking the item opens a popover with all three limits — All models, Fable, and
 the current 5-hour session — each with its reset time and percentage, plus a
@@ -68,8 +71,8 @@ binary's identity changes (i.e. on every local rebuild), whereas the `security`
 tool reads it without prompting. `SecItemCopyMatching` remains as a fallback if
 the subprocess fails.
 
-If the token has expired, or the API rejects it, the popover says so — opening
-Claude Code once refreshes it.
+If the token has expired, is empty, or the API rejects it, the popover says so —
+opening Claude Code once (signing in again if needed) refreshes it.
 
 ## Build from source
 

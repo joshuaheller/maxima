@@ -73,16 +73,20 @@ enum CLI {
         let cases: [(String, StatusDisplayState)] = [
             ("normal-26-28", .init(all: .init(percent: 26, severity: .normal),
                                    fable: .init(percent: 28, severity: .normal),
-                                   isStale: false)),
+                                   session: .init(percent: 40, severity: .normal),
+                                   sessionCountdown: "3h05m", isStale: false)),
             ("warning-85-60", .init(all: .init(percent: 85, severity: .warning),
                                     fable: .init(percent: 60, severity: .normal),
-                                    isStale: false)),
+                                    session: .init(percent: 72, severity: .normal),
+                                    sessionCountdown: "1h20m", isStale: false)),
             ("critical-97-90", .init(all: .init(percent: 97, severity: .critical),
                                      fable: .init(percent: 90, severity: .warning),
-                                     isStale: false)),
+                                     session: .init(percent: 99, severity: .critical),
+                                     sessionCountdown: "12m", isStale: false)),
             ("stale-26-28", .init(all: .init(percent: 26, severity: .normal),
                                   fable: .init(percent: 28, severity: .normal),
-                                  isStale: true)),
+                                  session: .init(percent: 40, severity: .normal),
+                                  sessionCountdown: "3h05m", isStale: true)),
         ]
 
         let url = URL(fileURLWithPath: directory, isDirectory: true)

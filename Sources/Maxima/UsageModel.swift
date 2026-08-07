@@ -44,11 +44,13 @@ public final class UsageModel {
         lastError != nil
     }
 
-    /// Derived input for the status bar renderer.
+    /// Derived input for the status bar renderer. `sessionCountdown` is left nil
+    /// here — it is wall-clock dependent, so the controller fills it in.
     public var displayState: StatusDisplayState {
         StatusDisplayState(
             all: snapshot?.allModels.map { BarState(percent: $0.percent, severity: $0.severity) },
             fable: snapshot?.fable.map { BarState(percent: $0.percent, severity: $0.severity) },
+            session: snapshot?.session.map { BarState(percent: $0.percent, severity: $0.severity) },
             isStale: isStale
         )
     }

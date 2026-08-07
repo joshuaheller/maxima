@@ -171,12 +171,24 @@ public enum KeychainCredentials {
 
     static func decode(_ data: Data, now: Date = Date()) throws -> Credentials {
         let decoder = JSONDecoder()
-        guard let envelope = try? decoder.decode(Envelope.self, from: data),
-              let oauth = envelope.claudeAiOauth,
+        let envelope: Envelope
+        do {
+            envelope = try decoder.decode(Envelope.self, from: data)
+        } catch {
+            // A DecodingError names the failing key path and expected type, never the
+            // values, so it is safe to log — and it is what reveals a genuine change
+            // in the credential format.
+            log.error("credential JSON not decodable (bytes=\(data.count, privacy: .public)): \(String(describing: error), privacy: .public)")
+            throw CredentialError.malformed
+        }
+        // The blob parsed but carries no active login: a blank or absent accessToken.
+        // That is a "sign in again" situation, not a corrupt-data one, so surface the
+        // actionable `.notFound` message rather than a confusing parse error.
+        guard let oauth = envelope.claudeAiOauth,
               let token = oauth.accessToken,
               !token.isEmpty
         else {
-            throw CredentialError.malformed
+            throw CredentialError.notFound
         }
 
         // expiresAt is epoch milliseconds.

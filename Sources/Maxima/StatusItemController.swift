@@ -16,6 +16,8 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     private var globalMouseMonitor: Any?
     private var renderedState: StatusDisplayState?
     private var renderedTooltip: String?
+    /// Re-renders so the session countdown stays current between data refreshes.
+    private var countdownTimer: Timer?
 
     init(model: UsageModel) {
         self.model = model
@@ -48,10 +50,21 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
 
         observeModel()
         render(force: true)
+
+        // The countdown shrinks every minute even when the data does not change, so
+        // re-render on a timer. A 30s tick keeps the displayed minute close to real.
+        let timer = Timer(timeInterval: 30, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.render() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        countdownTimer = timer
     }
 
     deinit {
         appearanceObservation?.invalidate()
+        // countdownTimer is intentionally not invalidated here: the controller lives
+        // for the whole process, and a nonisolated deinit cannot touch the
+        // main-actor Timer (same constraint as UsageModel's refresh timer).
     }
 
     // MARK: Observation
@@ -74,7 +87,10 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     // MARK: Rendering
 
     private func render(force: Bool = false) {
-        let state = model.displayState
+        var state = model.displayState
+        // The model cannot compute a countdown (it is wall-clock dependent), so fill
+        // it in here from the session's reset time.
+        state.sessionCountdown = countdown(until: model.snapshot?.session?.resetsAt)
         // The tooltip also carries the session percent and the error text, and
         // neither of those is part of `state`.
         let tooltip = tooltip(for: state)
@@ -87,6 +103,17 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         button.image = image
         button.appearsDisabled = state.isStale
         button.toolTip = tooltip
+    }
+
+    /// "3h05m" / "12m" until the session resets, or nil when there is no session or
+    /// its reset time is unknown.
+    private func countdown(until date: Date?) -> String? {
+        guard let date else { return nil }
+        let remaining = date.timeIntervalSinceNow
+        guard remaining > 0 else { return "0m" }
+        let minutes = Int(remaining / 60)
+        let (hours, mins) = (minutes / 60, minutes % 60)
+        return hours >= 1 ? String(format: "%dh%02dm", hours, mins) : "\(mins)m"
     }
 
     private func tooltip(for state: StatusDisplayState) -> String {

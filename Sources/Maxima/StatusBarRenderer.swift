@@ -16,52 +16,94 @@ public struct BarState: Sendable, Equatable {
 /// Everything the status item needs to draw itself. Deliberately decoupled from
 /// the model so rendering stays a pure function of this value.
 public struct StatusDisplayState: Sendable, Equatable {
-    /// Top bar: weekly "All models".
+    /// Top weekly bar: "All models".
     public var all: BarState?
-    /// Bottom bar: weekly "Fable".
+    /// Bottom weekly bar: "Fable".
     public var fable: BarState?
+    /// The current 5-hour session, drawn as a vertical green→red gauge.
+    public var session: BarState?
+    /// Pre-formatted "time left" until the session resets (e.g. "3h05m"). The model
+    /// cannot compute this — it is wall-clock dependent — so the controller fills it
+    /// in and re-renders once a minute.
+    public var sessionCountdown: String?
     /// Data is stale/errored — dim the item and show a warning glyph.
     public var isStale: Bool
 
-    public init(all: BarState?, fable: BarState?, isStale: Bool) {
+    public init(all: BarState?, fable: BarState?,
+                session: BarState? = nil, sessionCountdown: String? = nil,
+                isStale: Bool) {
         self.all = all
         self.fable = fable
+        self.session = session
+        self.sessionCountdown = sessionCountdown
         self.isStale = isStale
     }
 
-    /// Monochrome template rendering is only correct while nothing needs colour.
+    /// Monochrome template rendering is only correct while nothing needs colour. The
+    /// session gauge is always coloured (green→red), so its presence rules it out.
     public var isTemplateEligible: Bool {
-        !isStale && [all, fable].compactMap { $0?.severity }.allSatisfy { $0 == .normal }
+        session == nil && !isStale && [all, fable].compactMap { $0?.severity }.allSatisfy { $0 == .normal }
     }
 }
 
-/// Draws the two stacked mini progress bars shown in the menu bar.
+/// Draws the menu bar status item: a leading Claude glyph, two stacked weekly
+/// progress bars, and — for the current session — a vertical green→red gauge with
+/// a countdown to its reset.
 ///
 /// Pure: same input, same image. No global state, so it is unit-testable and
 /// usable from the `--render-test` CLI path.
 public enum StatusBarRenderer {
     public static let height: CGFloat = 22
-    public static let baseWidth: CGFloat = 68
-    /// Extra room for the stale warning triangle.
-    public static let staleWidth: CGFloat = 78
 
+    // Weekly stacked bars.
     private static let barHeight: CGFloat = 7
     private static let barGap: CGFloat = 2
     private static let cornerRadius: CGFloat = 2
+    private static let weeklyBarWidth: CGFloat = 26
     /// Wide enough for "100%" at `percentFont` — a narrower column clips the "%".
     static let textWidth: CGFloat = 28
     private static let textGap: CGFloat = 3
-    private static let glyphWidth: CGFloat = 10
-    static var percentFont: NSFont { .monospacedDigitSystemFont(ofSize: 9, weight: .medium) }
 
-    public static func width(isStale: Bool) -> CGFloat { isStale ? staleWidth : baseWidth }
+    // Leading Claude glyph.
+    private static let iconWidth: CGFloat = 13
+    private static let iconGap: CGFloat = 5
+
+    // Trailing session column.
+    private static let sessionBarWidth: CGFloat = 5
+    private static let sessionGap: CGFloat = 6
+    private static let timerGap: CGFloat = 4
+
+    /// Extra room for the stale warning triangle.
+    private static let glyphWidth: CGFloat = 10
+    private static let edgePadding: CGFloat = 2
+
+    static var percentFont: NSFont { .monospacedDigitSystemFont(ofSize: 9, weight: .medium) }
+    static var timerFont: NSFont { .monospacedDigitSystemFont(ofSize: 9, weight: .medium) }
+
+    /// The item is variable width; it grows for the session column, the countdown
+    /// text, and the stale glyph.
+    public static func width(for state: StatusDisplayState) -> CGFloat {
+        var width = edgePadding + iconWidth + iconGap + weeklyBarWidth + textGap + textWidth
+        if state.session != nil {
+            width += sessionGap + sessionBarWidth
+            if let countdown = state.sessionCountdown, !countdown.isEmpty {
+                width += timerGap + measure(countdown, font: timerFont).rounded(.up)
+            }
+        }
+        if state.isStale { width += glyphWidth }
+        return width + edgePadding
+    }
+
+    private static func measure(_ string: String, font: NSFont) -> CGFloat {
+        (string as NSString).size(withAttributes: [.font: font]).width
+    }
 
     /// Renders the status item image.
     /// - Parameter appearance: appearance used to resolve dynamic system colours.
     ///   Ignored when the result is a template image (which the system tints itself).
     public static func render(_ state: StatusDisplayState, appearance: NSAppearance? = nil) -> NSImage {
         let isTemplate = state.isTemplateEligible
-        let size = NSSize(width: width(isStale: state.isStale), height: height)
+        let size = NSSize(width: width(for: state), height: height)
 
         guard let rep = NSBitmapImageRep(
             bitmapDataPlanes: nil,
@@ -113,33 +155,53 @@ public enum StatusBarRenderer {
         let neutral: NSColor = isTemplate ? .black : .labelColor
         let secondary: NSColor = isTemplate ? .black : .secondaryLabelColor
 
-        let glyphSpace: CGFloat = state.isStale ? glyphWidth : 0
-        let barWidth = size.width - textWidth - textGap - glyphSpace
+        var x = edgePadding
+
+        // 1) Leading Claude glyph.
+        drawClaudeGlyph(in: NSRect(x: x, y: (size.height - iconWidth) / 2, width: iconWidth, height: iconWidth),
+                        color: neutral)
+        x += iconWidth + iconGap
+
+        // 2) Two stacked weekly bars with their percentages.
         let stackHeight = barHeight * 2 + barGap
         let bottomY = ((size.height - stackHeight) / 2).rounded()
+        drawRow(state.fable, x: x, y: bottomY,
+                neutral: neutral, secondary: secondary, isTemplate: isTemplate)
+        drawRow(state.all, x: x, y: bottomY + barHeight + barGap,
+                neutral: neutral, secondary: secondary, isTemplate: isTemplate)
+        x += weeklyBarWidth + textGap + textWidth
 
-        drawRow(state.fable, y: bottomY, barWidth: barWidth,
-                neutral: neutral, secondary: secondary, isTemplate: isTemplate, size: size)
-        drawRow(state.all, y: bottomY + barHeight + barGap, barWidth: barWidth,
-                neutral: neutral, secondary: secondary, isTemplate: isTemplate, size: size)
+        // 3) Trailing session column: a vertical green→red gauge and a countdown.
+        if let session = state.session {
+            x += sessionGap
+            let inset: CGFloat = 4
+            drawSessionGauge(session,
+                             in: NSRect(x: x, y: inset, width: sessionBarWidth, height: size.height - inset * 2),
+                             neutral: neutral)
+            x += sessionBarWidth
+            if let countdown = state.sessionCountdown, !countdown.isEmpty {
+                x += timerGap
+                drawTimer(countdown, x: x, height: size.height, color: secondary)
+            }
+        }
 
+        // 4) Stale warning glyph, far right.
         if state.isStale {
             drawStaleGlyph(size: size, color: secondary)
         }
     }
 
-    private static func drawRow(_ bar: BarState?, y: CGFloat, barWidth: CGFloat,
-                                neutral: NSColor, secondary: NSColor,
-                                isTemplate: Bool, size: NSSize) {
-        let trackRect = NSRect(x: 0, y: y, width: barWidth, height: barHeight)
+    private static func drawRow(_ bar: BarState?, x: CGFloat, y: CGFloat,
+                                neutral: NSColor, secondary: NSColor, isTemplate: Bool) {
+        let trackRect = NSRect(x: x, y: y, width: weeklyBarWidth, height: barHeight)
         neutral.withAlphaComponent(0.25).setFill()
         NSBezierPath(roundedRect: trackRect, xRadius: cornerRadius, yRadius: cornerRadius).fill()
 
         guard let bar else { return }
 
-        let fillWidth = (barWidth * bar.fraction).rounded()
+        let fillWidth = (weeklyBarWidth * bar.fraction).rounded()
         if fillWidth >= 1 {
-            let fillRect = NSRect(x: 0, y: y, width: max(fillWidth, cornerRadius * 2), height: barHeight)
+            let fillRect = NSRect(x: x, y: y, width: max(fillWidth, cornerRadius * 2), height: barHeight)
             fillColor(for: bar.severity, neutral: neutral, isTemplate: isTemplate).setFill()
             NSBezierPath(roundedRect: fillRect, xRadius: cornerRadius, yRadius: cornerRadius).fill()
         }
@@ -154,12 +216,45 @@ public enum StatusBarRenderer {
             .paragraphStyle: paragraph,
         ]
         let textRect = NSRect(
-            x: barWidth + textGap,
+            x: x + weeklyBarWidth + textGap,
             y: y + (barHeight - font.capHeight) / 2 - (font.ascender - font.capHeight) - 0.5,
             width: textWidth,
             height: font.ascender - font.descender
         )
         text.draw(in: textRect, withAttributes: attributes)
+    }
+
+    /// Vertical session gauge, filled from the bottom. Its colour rides a continuous
+    /// green→red hue by load (not the discrete severity buckets the weekly bars use),
+    /// so it reads at a glance without a number.
+    private static func drawSessionGauge(_ bar: BarState, in rect: NSRect, neutral: NSColor) {
+        let radius = rect.width / 2
+        neutral.withAlphaComponent(0.22).setFill()
+        NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).fill()
+
+        let fillHeight = (rect.height * CGFloat(bar.fraction)).rounded()
+        guard fillHeight >= 1 else { return }
+        let fillRect = NSRect(x: rect.minX, y: rect.minY,
+                              width: rect.width, height: max(fillHeight, rect.width))
+        sessionColor(fraction: bar.fraction).setFill()
+        NSBezierPath(roundedRect: fillRect, xRadius: radius, yRadius: radius).fill()
+    }
+
+    /// Continuous green (low) → red (high). Deliberately not the traffic-light
+    /// severity buckets: a smooth hue sweep so the exact load reads without a number.
+    static func sessionColor(fraction: Double) -> NSColor {
+        let f = CGFloat(min(max(fraction, 0), 1))
+        let hue = 0.34 * (1 - f)   // 0.34 (green) → 0.0 (red)
+        return NSColor(hue: hue, saturation: 0.85, brightness: 0.92, alpha: 1)
+    }
+
+    private static func drawTimer(_ text: String, x: CGFloat, height: CGFloat, color: NSColor) {
+        let font = timerFont
+        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
+        let string = text as NSString
+        let textSize = string.size(withAttributes: attributes)
+        string.draw(in: NSRect(x: x, y: (height - textSize.height) / 2, width: textSize.width, height: textSize.height),
+                    withAttributes: attributes)
     }
 
     private static func fillColor(for severity: Severity, neutral: NSColor, isTemplate: Bool) -> NSColor {
@@ -169,6 +264,26 @@ public enum StatusBarRenderer {
         case .warning: return .systemOrange
         case .critical: return .systemRed
         }
+    }
+
+    /// A small radiating sunburst that reads as "Claude" at a glance. Deliberately a
+    /// generic burst, not the exact wordmark — Maxima is not affiliated with Anthropic.
+    private static func drawClaudeGlyph(in rect: NSRect, color: NSColor) {
+        let center = NSPoint(x: rect.midX, y: rect.midY)
+        let spokes = 12
+        let inner = rect.width * 0.12
+        let outer = rect.width * 0.48
+
+        let path = NSBezierPath()
+        path.lineWidth = max(1, rect.width * 0.10)
+        path.lineCapStyle = .round
+        for i in 0..<spokes {
+            let angle = CGFloat(i) / CGFloat(spokes) * 2 * .pi
+            path.move(to: NSPoint(x: center.x + cos(angle) * inner, y: center.y + sin(angle) * inner))
+            path.line(to: NSPoint(x: center.x + cos(angle) * outer, y: center.y + sin(angle) * outer))
+        }
+        color.setStroke()
+        path.stroke()
     }
 
     private static func drawStaleGlyph(size: NSSize, color: NSColor) {

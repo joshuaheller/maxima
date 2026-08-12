@@ -325,6 +325,22 @@ struct CredentialTests {
     }
 }
 
+// MARK: - Expired-token nudge
+
+@Suite("Expired-token nudge")
+struct ExpiredTokenTests {
+
+    @Test("only an expired or rejected token triggers a Claude Code refresh")
+    func detects() {
+        #expect(UsageError.unauthorized.isExpiredToken)
+        #expect(UsageError.credentials(.expired(.now)).isExpiredToken)
+        #expect(UsageError.credentials(.notFound).isExpiredToken == false)
+        #expect(UsageError.network("x").isExpiredToken == false)
+        #expect(UsageError.httpStatus(500).isExpiredToken == false)
+        #expect(UsageError.decoding("x").isExpiredToken == false)
+    }
+}
+
 // MARK: - Fake percent override
 
 @Suite("Fake percent override")

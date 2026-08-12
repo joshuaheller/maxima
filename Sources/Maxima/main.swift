@@ -8,6 +8,8 @@ let arguments = CommandLine.arguments
 
 if arguments.contains("--fetch-once") {
     CLI.runFetchOnce()
+} else if arguments.contains("--nudge-once") {
+    CLI.runNudgeOnce()
 } else if let index = arguments.firstIndex(of: "--render-test") {
     let directory = index + 1 < arguments.count ? arguments[index + 1] : FileManager.default.currentDirectoryPath
     CLI.runRenderTest(directory: directory)
@@ -50,6 +52,22 @@ enum CLI {
                 semaphore.signal()
                 exit(1)
             }
+        }
+        semaphore.wait()
+        exit(0)
+    }
+
+    /// `--nudge-once`: run the Claude Code refresh nudge and report the outcome.
+    /// Lets the auto-refresh path be verified without waiting for a real expiry.
+    static func runNudgeOnce() -> Never {
+        let semaphore = DispatchSemaphore(value: 0)
+        Task.detached {
+            let refreshed = await TokenRefresher.nudge()
+            print(refreshed
+                ? "nudge: claude ran and the token was refreshed"
+                : "nudge: could not refresh (claude missing, failed, or timed out)")
+            semaphore.signal()
+            exit(refreshed ? 0 : 1)
         }
         semaphore.wait()
         exit(0)

@@ -25,6 +25,10 @@ public final class UsageModel {
     @ObservationIgnored private var timer: Timer?
     @ObservationIgnored private let notifications: NotificationManager
     @ObservationIgnored private let log = Logger(subsystem: AppInfo.subsystem, category: "model")
+    /// Guards the Claude Code refresh nudge: at most one in flight, and at most one
+    /// per failure episode, so a persistently broken login never becomes a spawn storm.
+    @ObservationIgnored private var isNudging = false
+    @ObservationIgnored private var nudgedThisEpisode = false
 
     public init(notifications: NotificationManager = NotificationManager()) {
         self.notifications = notifications
@@ -101,6 +105,7 @@ public final class UsageModel {
             self.snapshot = snapshot
             self.lastUpdated = Date()
             self.lastError = nil
+            self.nudgedThisEpisode = false
             log.info("refresh succeeded")
             notifications.evaluate(snapshot)
             schedule(after: Self.successInterval)
@@ -108,6 +113,28 @@ public final class UsageModel {
             self.lastError = error
             log.error("refresh failed: \(error.userMessage, privacy: .public)")
             schedule(after: Self.failureInterval)
+            maybeNudge(for: error)
+        }
+    }
+
+    /// When the token has expired, ask Claude Code to refresh it (see `TokenRefresher`)
+    /// and re-fetch if that worked — once per failure episode, reset by any success.
+    private func maybeNudge(for error: UsageError) {
+        guard error.isExpiredToken, !isNudging, !nudgedThisEpisode else { return }
+        isNudging = true
+        nudgedThisEpisode = true
+        log.info("token expired — asking Claude Code to refresh")
+
+        Task { [weak self] in
+            let refreshed = await TokenRefresher.nudge()
+            guard let self else { return }
+            self.isNudging = false
+            if refreshed {
+                self.log.info("Claude Code refreshed the token; re-fetching")
+                self.refresh(reason: "post-nudge")
+            } else {
+                self.log.info("could not auto-refresh; leaving the manual hint in place")
+            }
         }
     }
 

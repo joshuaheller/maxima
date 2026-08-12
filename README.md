@@ -74,6 +74,13 @@ the subprocess fails.
 If the token has expired, is empty, or the API rejects it, the popover says so —
 opening Claude Code once (signing in again if needed) refreshes it.
 
+When the token has *expired*, Maxima also tries to fix it automatically: it runs
+`claude -p` once in the background, which makes Claude Code refresh and re-store the
+token on start-up, then re-reads. This happens at most once per failure episode, and
+only if the `claude` CLI is on your `PATH`; otherwise the manual hint stays. Maxima
+itself still never touches the refresh token or writes to the keychain — Claude Code
+does. (The headless `.build/release/Maxima --nudge-once` runs just this step.)
+
 ## Build from source
 
 ```sh

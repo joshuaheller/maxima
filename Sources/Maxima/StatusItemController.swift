@@ -75,6 +75,9 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
             _ = model.snapshot
             _ = model.lastError
             _ = model.lastUpdated
+            _ = model.codexSnapshot
+            _ = model.codexError
+            _ = model.codexUpdated
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -90,7 +93,9 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         var state = model.displayState
         // The model cannot compute a countdown (it is wall-clock dependent), so fill
         // it in here from the session's reset time.
-        state.sessionCountdown = countdown(until: model.snapshot?.session?.resetsAt)
+        state.sessionCountdown = ResetCountdown.text(until: model.snapshot?.session?.resetsAt)
+        state.codexSessionCountdown = ResetCountdown.text(until: model.codexSnapshot?.session?.resetsAt)
+        state.codexWeeklyCountdown = ResetCountdown.text(until: model.codexSnapshot?.weekly?.resetsAt)
         // The tooltip also carries the session percent and the error text, and
         // neither of those is part of `state`.
         let tooltip = tooltip(for: state)
@@ -101,19 +106,9 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         guard let button = statusItem.button else { return }
         let image = StatusBarRenderer.render(state, appearance: button.effectiveAppearance)
         button.image = image
-        button.appearsDisabled = state.isStale
+        button.appearsDisabled = false
+        button.setAccessibilityLabel(tooltip)
         button.toolTip = tooltip
-    }
-
-    /// "3h05m" / "12m" until the session resets, or nil when there is no session or
-    /// its reset time is unknown.
-    private func countdown(until date: Date?) -> String? {
-        guard let date else { return nil }
-        let remaining = date.timeIntervalSinceNow
-        guard remaining > 0 else { return "0m" }
-        let minutes = Int(remaining / 60)
-        let (hours, mins) = (minutes / 60, minutes % 60)
-        return hours >= 1 ? String(format: "%dh%02dm", hours, mins) : "\(mins)m"
     }
 
     private func tooltip(for state: StatusDisplayState) -> String {
@@ -121,6 +116,14 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         if let all = state.all { lines.append("All models (weekly): \(all.percent)%") }
         if let fable = state.fable { lines.append("Fable (weekly): \(fable.percent)%") }
         if let session = model.snapshot?.session { lines.append("Session: \(session.percent)%") }
+        for limit in [model.codexSnapshot?.session, model.codexSnapshot?.weekly].compactMap({ $0 }) {
+            let reset = limit.resetsAt.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "unknown"
+            lines.append("\(limit.kind.displayName): \(limit.percent)% · resets \(reset)")
+        }
+        if model.codexSnapshot != nil, model.codexSnapshot?.session == nil {
+            lines.append("Codex · 5 hours: not provided for this account")
+        }
+        if let error = model.codexError { lines.append("Codex: \(error)") }
         if let error = model.lastError { lines.append(error.userMessage) }
         return lines.joined(separator: "\n")
     }
@@ -142,6 +145,12 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         removeMouseMonitor()
         // An .accessory app is not active, and an inactive app's popover renders
         // (and dismisses) unreliably — activate first.
+        let availableHeight = button.window?.screen?.visibleFrame.height ?? 600
+        let height = min(480, max(180, availableHeight - 32))
+        if let host = popover.contentViewController as? NSHostingController<PopoverView> {
+            host.rootView = PopoverView(model: model, height: height)
+        }
+        popover.contentSize = NSSize(width: 320, height: height)
         NSApp.activate()
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()

@@ -6,7 +6,9 @@ import Foundation
 
 let arguments = CommandLine.arguments
 
-if arguments.contains("--fetch-once") {
+if arguments.contains("--fetch-codex-once") {
+    CLI.runCodexFetchOnce()
+} else if arguments.contains("--fetch-once") {
     CLI.runFetchOnce()
 } else if arguments.contains("--nudge-once") {
     CLI.runNudgeOnce()
@@ -25,6 +27,20 @@ if arguments.contains("--fetch-once") {
 // MARK: - Debug entry points
 
 enum CLI {
+    static func runCodexFetchOnce() -> Never {
+        Task.detached {
+            do {
+                let snapshot = try await CodexUsage.fetch()
+                for limit in [snapshot.session, snapshot.weekly].compactMap({ $0 }) { print(describe(limit)) }
+                exit(0)
+            } catch {
+                print(error.localizedDescription)
+                exit(1)
+            }
+        }
+        dispatchMain()
+    }
+
     /// `--fetch-once`: read credentials, fetch, print the parsed limits. No AppKit,
     /// no UserNotifications — safe to run from a bare binary in a terminal.
     static func runFetchOnce() -> Never {
@@ -116,7 +132,13 @@ enum CLI {
         }
 
         let appearance = NSAppearance(named: .aqua)
-        for (name, state) in cases {
+        for (name, original) in cases {
+            var state = original
+            state.sessionCountdown = "3h"
+            state.codexSession = .init(percent: 35, severity: .normal)
+            state.codexWeekly = .init(percent: 85, severity: .warning)
+            state.codexSessionCountdown = "2h"
+            state.codexWeeklyCountdown = "4d"
             guard let png = StatusBarRenderer.renderPNG(state, appearance: appearance) else {
                 FileHandle.standardError.write(Data("error: failed to render \(name)\n".utf8))
                 exit(1)

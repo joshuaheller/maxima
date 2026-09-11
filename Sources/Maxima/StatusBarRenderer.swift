@@ -27,22 +27,34 @@ public struct StatusDisplayState: Sendable, Equatable {
     /// in and re-renders once a minute.
     public var sessionCountdown: String?
     /// Data is stale/errored — dim the item and show a warning glyph.
+    public var codexSession: BarState?
+    public var codexWeekly: BarState?
+    public var codexSessionCountdown: String?
+    public var codexWeeklyCountdown: String?
+    public var codexStale: Bool
     public var isStale: Bool
 
     public init(all: BarState?, fable: BarState?,
                 session: BarState? = nil, sessionCountdown: String? = nil,
-                isStale: Bool) {
+                codexSession: BarState? = nil, codexWeekly: BarState? = nil,
+                codexSessionCountdown: String? = nil, codexWeeklyCountdown: String? = nil,
+                codexStale: Bool = false, isStale: Bool) {
         self.all = all
         self.fable = fable
         self.session = session
         self.sessionCountdown = sessionCountdown
+        self.codexSession = codexSession
+        self.codexWeekly = codexWeekly
+        self.codexSessionCountdown = codexSessionCountdown
+        self.codexWeeklyCountdown = codexWeeklyCountdown
+        self.codexStale = codexStale
         self.isStale = isStale
     }
 
     /// Monochrome template rendering is only correct while nothing needs colour. The
     /// session gauge is always coloured (green→red), so its presence rules it out.
     public var isTemplateEligible: Bool {
-        session == nil && !isStale && [all, fable].compactMap { $0?.severity }.allSatisfy { $0 == .normal }
+        session == nil && !isStale && !codexStale && [all, fable, codexSession, codexWeekly].compactMap { $0?.severity }.allSatisfy { $0 == .normal }
     }
 }
 
@@ -60,9 +72,8 @@ public enum StatusBarRenderer {
     private static let barGap: CGFloat = 2
     private static let cornerRadius: CGFloat = 2
     private static let weeklyBarWidth: CGFloat = 26
-    /// Wide enough for "100%" at `percentFont` — a narrower column clips the "%".
-    static let textWidth: CGFloat = 28
-    private static let textGap: CGFloat = 3
+    private static let codexGap: CGFloat = 8
+    private static let countdownWidth: CGFloat = 20
 
     // Leading Claude glyph.
     private static let iconWidth: CGFloat = 13
@@ -77,20 +88,20 @@ public enum StatusBarRenderer {
     private static let glyphWidth: CGFloat = 10
     private static let edgePadding: CGFloat = 2
 
-    static var percentFont: NSFont { .monospacedDigitSystemFont(ofSize: 9, weight: .medium) }
     static var timerFont: NSFont { .monospacedDigitSystemFont(ofSize: 9, weight: .medium) }
 
     /// The item is variable width; it grows for the session column, the countdown
     /// text, and the stale glyph.
     public static func width(for state: StatusDisplayState) -> CGFloat {
-        var width = edgePadding + iconWidth + iconGap + weeklyBarWidth + textGap + textWidth
+        var width = edgePadding + iconWidth + iconGap + weeklyBarWidth
         if state.session != nil {
             width += sessionGap + sessionBarWidth
             if let countdown = state.sessionCountdown, !countdown.isEmpty {
                 width += timerGap + measure(countdown, font: timerFont).rounded(.up)
             }
         }
-        if state.isStale { width += glyphWidth }
+        width += codexGap + iconWidth + iconGap + weeklyBarWidth + timerGap + countdownWidth
+        if state.isStale || state.codexStale { width += glyphWidth }
         return width + edgePadding
     }
 
@@ -162,14 +173,14 @@ public enum StatusBarRenderer {
                         color: neutral)
         x += iconWidth + iconGap
 
-        // 2) Two stacked weekly bars with their percentages.
+        // 2) Two stacked weekly bars.
         let stackHeight = barHeight * 2 + barGap
         let bottomY = ((size.height - stackHeight) / 2).rounded()
         drawRow(state.fable, x: x, y: bottomY,
                 neutral: neutral, secondary: secondary, isTemplate: isTemplate)
         drawRow(state.all, x: x, y: bottomY + barHeight + barGap,
                 neutral: neutral, secondary: secondary, isTemplate: isTemplate)
-        x += weeklyBarWidth + textGap + textWidth
+        x += weeklyBarWidth
 
         // 3) Trailing session column: a vertical green→red gauge and a countdown.
         if let session = state.session {
@@ -182,11 +193,32 @@ public enum StatusBarRenderer {
             if let countdown = state.sessionCountdown, !countdown.isEmpty {
                 x += timerGap
                 drawTimer(countdown, x: x, height: size.height, color: secondary)
+                x += measure(countdown, font: timerFont).rounded(.up)
             }
         }
 
-        // 4) Stale warning glyph, far right.
-        if state.isStale {
+        // Codex: a small terminal glyph, then 5-hour / weekly bars and reset countdowns.
+        x += codexGap
+        let codexColor = state.codexStale ? secondary : neutral
+        let iconRect = NSRect(x: x, y: (size.height - iconWidth) / 2, width: iconWidth, height: iconWidth)
+        let symbol = NSImage(systemSymbolName: "terminal", accessibilityDescription: "Codex")
+        symbol?.draw(in: iconRect)
+        codexColor.setFill()
+        iconRect.fill(using: .sourceAtop)
+        x += iconWidth + iconGap
+        for (bar, countdown, y) in [
+            (state.codexSession, state.codexSessionCountdown, bottomY + barHeight + barGap),
+            (state.codexWeekly, state.codexWeeklyCountdown, bottomY)
+        ] {
+            drawRow(bar, x: x, y: y, neutral: codexColor, secondary: secondary, isTemplate: isTemplate)
+            let text = (countdown ?? "–") as NSString
+            let font = timerFont
+            text.draw(at: NSPoint(x: x + weeklyBarWidth + timerGap,
+                                  y: y + (barHeight - font.capHeight) / 2 - (font.ascender - font.capHeight)),
+                      withAttributes: [.font: font, .foregroundColor: codexColor])
+        }
+
+        if state.isStale || state.codexStale {
             drawStaleGlyph(size: size, color: secondary)
         }
     }
@@ -206,22 +238,6 @@ public enum StatusBarRenderer {
             NSBezierPath(roundedRect: fillRect, xRadius: cornerRadius, yRadius: cornerRadius).fill()
         }
 
-        let text = "\(bar.percent)%" as NSString
-        let font = percentFont
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.alignment = .right
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: isTemplate ? NSColor.black : neutral,
-            .paragraphStyle: paragraph,
-        ]
-        let textRect = NSRect(
-            x: x + weeklyBarWidth + textGap,
-            y: y + (barHeight - font.capHeight) / 2 - (font.ascender - font.capHeight) - 0.5,
-            width: textWidth,
-            height: font.ascender - font.descender
-        )
-        text.draw(in: textRect, withAttributes: attributes)
     }
 
     /// Vertical session gauge, filled from the bottom. Its colour rides a continuous

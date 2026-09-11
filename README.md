@@ -1,23 +1,26 @@
 # Maxima
 
-A tiny native macOS menu bar app that shows your Claude Code usage limits at a
+A tiny native macOS menu bar app that shows your Claude Code and Codex usage limits at a
 glance.
 
 The status item shows, from left to right:
 
 - a small Claude-style sunburst, so Maxima is easy to pick out of the menu bar
 - two stacked mini progress bars — **top** the weekly *All models* limit, **bottom**
-  the weekly *Fable* limit — each with its percentage. They turn orange as a limit
+  the weekly *Fable* limit — without percentage labels. They turn orange as a limit
   approaches and red when critical.
 - a vertical gauge for the current **5-hour session**, coloured on a continuous
   green→red scale by how much of the session is used, with the time left until it
-  resets shown beside it.
+  resets shown beside it (e.g. `2h` or `12m`).
+- a terminal glyph followed by two Codex bars: **top** the 5-hour limit, **bottom**
+  the weekly limit, with compact reset countdowns (e.g. `2h` / `7d`).
+  Unavailable windows display `–`; they are never treated as zero usage.
 
-The item follows light and dark mode. If the data goes stale it dims and grows a
+The item follows light and dark mode. If a provider fetch fails it grows a
 small warning triangle, while still showing the last known numbers.
 
-Clicking the item opens a popover with all three limits — All models, Fable, and
-the current 5-hour session — each with its reset time and percentage, plus a
+Clicking the item opens a popover with Claude and Codex limits, each with its
+exact local reset time and percentage, plus a
 "Refresh now" and "Quit" button.
 
 Usage is refreshed on launch, every 5 minutes (1 minute after a failure), on wake
@@ -29,6 +32,12 @@ reset window.
 
 - macOS 14 or later, Apple silicon
 - Claude Code installed and signed in (see [Credentials](#credentials) below)
+- For Codex limits: Codex desktop or CLI installed and signed in with ChatGPT.
+  Maxima calls the local `codex app-server` method `account/rateLimits/read`.
+  Codex manages its own credentials; Maxima does not read or store Codex tokens.
+  Account-wide limits are selected by their actual duration; model-specific
+  buckets (such as Spark) are not substituted for missing account-wide limits.
+  Reference: [Codex App Server](https://learn.chatgpt.com/docs/app-server).
 
 ## Install
 

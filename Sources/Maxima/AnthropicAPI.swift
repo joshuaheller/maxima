@@ -33,19 +33,23 @@ public enum LimitKind: String, Sendable {
     case allModels = "weekly_all"
     case fable = "weekly_fable"
     case session = "session"
+    case codexSession = "codex_session"
+    case codexWeekly = "codex_weekly"
 
     public var displayName: String {
         switch self {
         case .allModels: return "All models"
         case .fable: return "Fable"
         case .session: return "Current session"
+        case .codexSession: return "Codex · 5 hours"
+        case .codexWeekly: return "Codex · Weekly"
         }
     }
 
     public var isWeekly: Bool {
         switch self {
-        case .allModels, .fable: return true
-        case .session: return false
+        case .allModels, .fable, .codexWeekly: return true
+        case .session, .codexSession: return false
         }
     }
 }

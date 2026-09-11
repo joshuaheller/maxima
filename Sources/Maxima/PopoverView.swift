@@ -4,28 +4,49 @@ import AppKit
 /// Dropdown content shown from the status item, styled after the claude.ai usage panel.
 struct PopoverView: View {
     let model: UsageModel
+    var height: CGFloat = 480
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
 
-            if let error = model.lastError {
-                errorBanner(error)
-            }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    if let error = model.lastError {
+                        errorBanner(error.userMessage)
+                    }
 
-            VStack(alignment: .leading, spacing: 18) {
-                section(for: model.snapshot?.allModels, fallbackTitle: "All models")
-                section(for: model.snapshot?.fable, fallbackTitle: "Fable")
-                section(for: model.snapshot?.session, fallbackTitle: "Current session")
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 14)
-            .padding(.bottom, 16)
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Claude").font(.system(size: 11, weight: .bold)).foregroundStyle(.secondary)
+                        section(for: model.snapshot?.allModels, fallbackTitle: "All models")
+                        section(for: model.snapshot?.fable, fallbackTitle: "Fable")
+                        section(for: model.snapshot?.session, fallbackTitle: "Current session")
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 14)
+                    .padding(.bottom, 16)
 
+                    Divider()
+                    if let error = model.codexError { errorBanner(error) }
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Codex").font(.system(size: 11, weight: .bold)).foregroundStyle(.secondary)
+                        section(for: model.codexSnapshot?.session, fallbackTitle: "Codex · 5 hours",
+                                unavailableText: model.codexSnapshot != nil ? "Not provided by Codex for this account" : nil)
+                        section(for: model.codexSnapshot?.weekly, fallbackTitle: "Codex · Weekly")
+                        if let updated = model.codexUpdated {
+                            (Text("Updated ") + Text(updated, style: .relative))
+                                .font(.system(size: 11)).foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(16)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: .infinity)
             Divider()
             footer
         }
-        .frame(width: 300)
+        .frame(width: 320, height: height)
     }
 
     // MARK: Header
@@ -43,17 +64,17 @@ struct PopoverView: View {
         }
         .padding(.horizontal, 16)
         .padding(.top, 14)
-        .padding(.bottom, 2)
+        .padding(.bottom, 10)
     }
 
     // MARK: Error banner
 
-    private func errorBanner(_ error: UsageError) -> some View {
+    private func errorBanner(_ message: String) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.orange)
                 .font(.system(size: 12))
-            Text(error.userMessage)
+            Text(message)
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -68,20 +89,22 @@ struct PopoverView: View {
     // MARK: Sections
 
     @ViewBuilder
-    private func section(for limit: UsageLimit?, fallbackTitle: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(limit?.kind.displayName ?? fallbackTitle)
-                .font(.system(size: 12, weight: .semibold))
-
-            Text(resetText(limit))
+    private func section(for limit: UsageLimit?, fallbackTitle: String, unavailableText: String? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text(limit?.kind.displayName ?? fallbackTitle)
+                    .font(.system(size: 12, weight: .semibold))
+                Spacer()
+                Text(limit.map { "\($0.percent)%" } ?? "–")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+            }
+            if limit != nil {
+                ProgressBar(fraction: limit?.fraction ?? 0, tint: tint(limit?.severity ?? .normal))
+            }
+            Text(limit == nil ? (unavailableText ?? "No data yet") : resetText(limit))
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
-
-            ProgressBar(fraction: limit?.fraction ?? 0, tint: tint(limit?.severity ?? .normal))
-
-            Text(limit.map { "\($0.percent)% used" } ?? "No data")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -140,6 +163,6 @@ private struct ProgressBar: View {
                     .frame(width: max(0, min(1, fraction)) * geometry.size.width)
             }
         }
-        .frame(height: 10)
+        .frame(height: 7)
     }
 }

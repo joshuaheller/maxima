@@ -428,9 +428,5 @@ struct DisplayStateTests {
         #expect(StatusBarRenderer.width(for: withSession) > StatusBarRenderer.width(for: base))
     }
 
-    @Test("the percent column fits the widest label it can show", arguments: ["0%", "26%", "100%"])
-    func percentTextFits(label: String) {
-        let width = (label as NSString).size(withAttributes: [.font: StatusBarRenderer.percentFont]).width
-        #expect(width <= StatusBarRenderer.textWidth)
-    }
+
 }

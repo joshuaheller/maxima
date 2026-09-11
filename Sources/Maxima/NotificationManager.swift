@@ -111,6 +111,8 @@ extension UsageLimit {
         case .allModels: return "All models weekly"
         case .fable: return "Fable weekly"
         case .session: return "Session"
+        case .codexSession: return "Codex 5 hours"
+        case .codexWeekly: return "Codex weekly"
         }
     }
 }

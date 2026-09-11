@@ -16,6 +16,9 @@ public final class UsageModel {
     /// Error from the most recent attempt; nil after a success.
     public private(set) var lastError: UsageError?
     public private(set) var isRefreshing: Bool = false
+    private(set) var codexSnapshot: CodexUsage.Snapshot?
+    private(set) var codexError: String?
+    private(set) var codexUpdated: Date?
 
     /// Seconds between refreshes after a successful fetch.
     public static let successInterval: TimeInterval = 300
@@ -55,6 +58,9 @@ public final class UsageModel {
             all: snapshot?.allModels.map { BarState(percent: $0.percent, severity: $0.severity) },
             fable: snapshot?.fable.map { BarState(percent: $0.percent, severity: $0.severity) },
             session: snapshot?.session.map { BarState(percent: $0.percent, severity: $0.severity) },
+            codexSession: codexSnapshot?.session.map { BarState(percent: $0.percent, severity: $0.severity) },
+            codexWeekly: codexSnapshot?.weekly.map { BarState(percent: $0.percent, severity: $0.severity) },
+            codexStale: codexError != nil,
             isStale: isStale
         )
     }
@@ -77,10 +83,24 @@ public final class UsageModel {
         log.info("refresh started (\(reason, privacy: .public))")
 
         Task { [weak self] in
-            let result = await Self.performFetch()
+            async let claude = Self.performFetch()
+            async let codex = Self.performCodexFetch()
+            let (result, codexResult) = await (claude, codex)
             guard let self else { return }
+            switch codexResult {
+            case .success(let snapshot):
+                self.codexSnapshot = snapshot
+                self.codexUpdated = Date()
+                self.codexError = nil
+            case .failure(let error): self.codexError = error.localizedDescription
+            }
             self.apply(result)
         }
+    }
+
+    private static func performCodexFetch() async -> Result<CodexUsage.Snapshot, Error> {
+        do { return .success(try await CodexUsage.fetch()) }
+        catch { return .failure(error) }
     }
 
     /// Off-main work: credential read + network call.
@@ -108,7 +128,7 @@ public final class UsageModel {
             self.nudgedThisEpisode = false
             log.info("refresh succeeded")
             notifications.evaluate(snapshot)
-            schedule(after: Self.successInterval)
+            schedule(after: codexError == nil ? Self.successInterval : Self.failureInterval)
         case .failure(let error):
             self.lastError = error
             log.error("refresh failed: \(error.userMessage, privacy: .public)")
